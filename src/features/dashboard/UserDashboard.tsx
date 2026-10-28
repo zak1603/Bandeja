@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
-import { CalendarDays, Clock, Wallet } from "lucide-react"
+import { CalendarDays, Clock } from "lucide-react"
 import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -13,9 +13,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { useAuth } from "@/features/auth/auth-context"
-import { formatPrice } from "@/lib/club"
+import { BallLoader } from "@/features/padel/PadelBall"
 import { supabase } from "@/lib/supabaseClient"
-import { formatDateLong, toHHMM, toLocalDateTime } from "@/lib/time"
+import { formatDateLong, formatDuration, toHHMM, toLocalDateTime, toMinutes } from "@/lib/time"
 import { useNow } from "@/lib/useNow"
 import type { BookingStatus, BookingWithCourt } from "@/types"
 
@@ -60,7 +60,6 @@ export function UserDashboard({ onBookCourt }: UserDashboardProps) {
             ...b,
             start_time: toHHMM(b.start_time),
             end_time: toHHMM(b.end_time),
-            total_price: Number(b.total_price),
           })),
         })
       })
@@ -104,7 +103,7 @@ export function UserDashboard({ onBookCourt }: UserDashboardProps) {
       <section className="grid gap-3">
         <h2 className="text-lg font-semibold">Upcoming matches</h2>
         {loading ? (
-          <p className="text-sm text-muted-foreground">Loading your bookings…</p>
+          <BallLoader label="Loading your bookings…" />
         ) : error ? (
           <p className="text-sm text-destructive">Couldn't load bookings: {error}</p>
         ) : upcoming.length === 0 ? (
@@ -191,10 +190,7 @@ function BookingCard({
               <Clock className="size-4" aria-hidden />
               {booking.start_time}–{booking.end_time}
             </span>
-            <span className="inline-flex items-center gap-1.5">
-              <Wallet className="size-4" aria-hidden />
-              {formatPrice(booking.total_price)}
-            </span>
+            <span>{formatDuration(toMinutes(booking.end_time) - toMinutes(booking.start_time))}</span>
           </div>
         </div>
         {onCancel && (

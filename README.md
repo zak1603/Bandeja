@@ -1,6 +1,6 @@
 # Bandeja — Padel Court Booking
 
-Book padel courts by date, length and time slot; get an instant email receipt (and the club gets one too).
+Book the home padel court ("Unit 4") by date, length and time slot, and see who has booked each slot. Start times every 30 minutes from 06:00. No payments, no accounts or passwords: players just give a name and phone number on their first booking. The admin gets an email for every booking (who, when, how long).
 
 **Stack:** React + TypeScript + Vite · Tailwind v4 + shadcn/ui · Supabase (Postgres, Auth, RLS) · Resend · Vercel
 
@@ -19,9 +19,9 @@ Import the GitHub repo in Vercel (framework preset: Vite). Add these environment
 | Variable | Notes |
 |---|---|
 | `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` | Used by the browser **and** the email function |
-| `RESEND_API_KEY` | Server only |
-| `ADMIN_NOTIFICATION_EMAIL` | Receives a copy of every booking |
-| `RESEND_FROM_EMAIL` | Optional; needs a domain verified in Resend |
+| `RESEND_API_KEY` | Server only. Leave unset to turn email off |
+| `ADMIN_NOTIFICATION_EMAIL` | Receives every booking. Without `RESEND_FROM_EMAIL` it must be your Resend account's email |
+| `RESEND_FROM_EMAIL` | Optional; needs a domain verified in Resend. Also turns on player receipts |
 | `CLUB_NAME`, `CLUB_ADDRESS` | Optional; shown in emails |
 
 ## Scripts

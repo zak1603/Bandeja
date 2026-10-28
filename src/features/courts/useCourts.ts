@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
+import { describeLoadError } from "@/lib/errors"
 import { supabase } from "@/lib/supabaseClient"
 import { toHHMM } from "@/lib/time"
 import type { BookedSlot, Court } from "@/types"
@@ -11,13 +12,12 @@ export function useCourts() {
   useEffect(() => {
     supabase
       .from("courts")
-      .select("id, name, hourly_rate, is_active")
+      .select("id, name, is_active")
       .eq("is_active", true)
       .order("name")
       .then(({ data, error }) => {
-        if (error) setError(error.message)
-        // numeric columns can arrive as strings
-        else setCourts((data ?? []).map((c) => ({ ...c, hourly_rate: Number(c.hourly_rate) })))
+        if (error) setError(describeLoadError(error))
+        else setCourts(data ?? [])
         setLoading(false)
       })
   }, [])
@@ -43,11 +43,12 @@ export function useBookedSlots(dateKey: string) {
       if (cancelled) return
       setResult({
         key: requestKey,
-        error: error?.message ?? null,
+        error: error ? describeLoadError(error) : null,
         slots: ((data ?? []) as BookedSlot[]).map((s) => ({
           court_id: s.court_id,
           start_time: toHHMM(s.start_time),
           end_time: toHHMM(s.end_time),
+          booked_by: s.booked_by,
         })),
       })
     })

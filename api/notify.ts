@@ -1,21 +1,26 @@
 /**
- * Vercel Serverless Function — POST /api/send-confirmation
+ * Vercel Serverless Function — POST /api/notify
  *
- * Body:    { "bookingId": "<uuid>" }
  * Headers: Authorization: Bearer <supabase access token>
+ * Body:    { "kind": "booking", "bookingId": "<uuid>" }
  *
- * Sends two emails through Resend: a receipt to the player and an alert to the
- * club admin. The booking is re-read from Supabase *as the calling user* (RLS
- * applies), so a caller can only trigger emails for their own bookings and the
- * email contents never come from the request body.
+ * Emails the admin (ADMIN_NOTIFICATION_EMAIL) through Resend after a booking:
+ * who booked (name, phone), the court, date, time and how long they're playing.
+ * Players are usually guests (anonymous users, no email); if one does have an
+ * email and a verified sending domain is configured, they get a receipt too.
+ *
+ * The booking is re-read from Supabase *as the calling user* (RLS applies), so a
+ * caller can only trigger emails about their own bookings and the email
+ * contents never come from the request body.
  *
  * Env (Vercel → Settings → Environment Variables):
- *   RESEND_API_KEY, ADMIN_NOTIFICATION_EMAIL           required
+ *   RESEND_API_KEY, ADMIN_NOTIFICATION_EMAIL           required for any email (503 without them)
  *   VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY          required (shared with the frontend)
- *   RESEND_FROM_EMAIL                                  optional, e.g. "Bandeja <bookings@yourdomain.com>"
+ *   RESEND_FROM_EMAIL                                  optional, e.g. "Bandeja <bookings@yourdomain.com>";
+ *                                                      also enables player receipts
  *   CLUB_NAME, CLUB_ADDRESS                            optional, shown in the emails
  */
-import { createClient } from "@supabase/supabase-js"
+import { createClient, type SupabaseClient } from "@supabase/supabase-js"
 import { Resend } from "resend"
 
 interface BookingRow {
@@ -23,29 +28,35 @@ interface BookingRow {
   booking_date: string
   start_time: string
   end_time: string
-  total_price: number | string
   status: string
   courts: { name: string } | null
   profiles: { full_name: string; phone_number: string } | null
 }
 
-const CURRENCY = "EUR"
+// Works without a verified domain, but only delivers to the Resend account
+// owner's address — fine for admin alerts, not for player receipts.
+const TEST_SENDER = "Bandeja Padel <onboarding@resend.dev>"
+
+interface Context {
+  env: Env
+  supabase: SupabaseClient
+  resend: Resend
+  email: string | null // the calling user's; null for guests
+}
 
 export async function POST(request: Request): Promise<Response> {
   const env = readEnv()
-  if (!env) return json(500, { error: "Email service is not configured" })
+  // 503 tells the client email is switched off, so it stays quiet.
+  if (!env) return json(503, { error: "Email service is not configured" })
 
   const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "")
   if (!token) return json(401, { error: "Missing access token" })
 
-  let bookingId: unknown
+  let body: { kind?: unknown; bookingId?: unknown }
   try {
-    ;({ bookingId } = (await request.json()) as { bookingId?: unknown })
+    body = (await request.json()) as typeof body
   } catch {
     return json(400, { error: "Invalid JSON body" })
-  }
-  if (typeof bookingId !== "string" || !/^[0-9a-f-]{36}$/i.test(bookingId)) {
-    return json(400, { error: "bookingId must be a UUID" })
   }
 
   // Acts as the signed-in user, so RLS limits it to their own rows.
@@ -55,13 +66,23 @@ export async function POST(request: Request): Promise<Response> {
   })
 
   const { data: userData, error: userError } = await supabase.auth.getUser(token)
-  const email = userData.user?.email
-  if (userError || !email) return json(401, { error: "Invalid or expired session" })
+  const user = userData.user
+  if (userError || !user) return json(401, { error: "Invalid or expired session" })
+
+  const ctx: Context = { env, supabase, resend: new Resend(env.resendApiKey), email: user.email || null }
+  if (body.kind === "booking") return notifyBooking(ctx, body.bookingId)
+  return json(400, { error: 'kind must be "booking"' })
+}
+
+async function notifyBooking({ env, supabase, resend, email }: Context, bookingId: unknown) {
+  if (typeof bookingId !== "string" || !/^[0-9a-f-]{36}$/i.test(bookingId)) {
+    return json(400, { error: "bookingId must be a UUID" })
+  }
 
   const { data: booking, error: bookingError } = await supabase
     .from("bookings")
     .select(
-      "id, booking_date, start_time, end_time, total_price, status, courts(name), profiles(full_name, phone_number)"
+      "id, booking_date, start_time, end_time, status, courts(name), profiles(full_name, phone_number)"
     )
     .eq("id", bookingId)
     .maybeSingle<BookingRow>()
@@ -71,27 +92,29 @@ export async function POST(request: Request): Promise<Response> {
   if (booking.status !== "confirmed") return json(409, { error: "Booking is not confirmed" })
 
   const details = toDetails(booking, env)
-  const resend = new Resend(env.resendApiKey)
-
-  const { error: sendError } = await resend.batch.send([
+  const messages = [
     {
+      from: env.fromEmail ?? TEST_SENDER,
+      to: [env.adminEmail],
+      replyTo: email ?? undefined,
+      subject: `New booking: ${details.playerName}, ${details.date} ${details.start}–${details.end} (${details.length})`,
+      html: adminBookingEmail(details, email),
+    },
+  ]
+  if (env.fromEmail && email) {
+    messages.push({
       from: env.fromEmail,
       to: [email],
+      replyTo: env.adminEmail,
       subject: `Court booked: ${details.court}, ${details.date} at ${details.start}`,
       html: clientEmail(details),
-    },
-    {
-      from: env.fromEmail,
-      to: [env.adminEmail],
-      replyTo: email,
-      subject: `New booking: ${details.court}, ${details.date} ${details.start}–${details.end}`,
-      html: adminEmail(details, email),
-    },
-  ])
+    })
+  }
 
+  const { error: sendError } = await resend.batch.send(messages)
   if (sendError) {
     console.error("Resend error", sendError)
-    return json(502, { error: "Failed to send confirmation emails" })
+    return json(502, { error: "Failed to send booking emails" })
   }
   return json(200, { ok: true })
 }
@@ -104,7 +127,7 @@ function readEnv() {
   const resendApiKey = process.env.RESEND_API_KEY
   const adminEmail = process.env.ADMIN_NOTIFICATION_EMAIL
   if (!supabaseUrl || !supabaseAnonKey || !resendApiKey || !adminEmail) {
-    console.error("send-confirmation: missing required environment variables")
+    console.error("notify: missing required environment variables")
     return null
   }
   return {
@@ -112,9 +135,7 @@ function readEnv() {
     supabaseAnonKey,
     resendApiKey,
     adminEmail,
-    // onboarding@resend.dev works without a verified domain, but only delivers
-    // to the Resend account owner's address. Verify a domain for production.
-    fromEmail: process.env.RESEND_FROM_EMAIL ?? "Bandeja Padel <onboarding@resend.dev>",
+    fromEmail: process.env.RESEND_FROM_EMAIL || undefined,
     clubName: process.env.CLUB_NAME ?? "Bandeja Padel Club",
     clubAddress: process.env.CLUB_ADDRESS ?? "Ask the club for directions",
   }
@@ -128,31 +149,34 @@ interface Details {
   date: string
   start: string
   end: string
-  price: string
+  length: string
   playerName: string
   playerPhone: string
   clubName: string
   clubAddress: string
 }
 
-function toDetails(b: BookingRow, env: Env): Details {
-  const [y, m, d] = b.booking_date.split("-").map(Number)
-  const date = new Date(Date.UTC(y, m - 1, d)).toLocaleDateString("en-GB", {
+/** YYYY-MM-DD → "Wednesday 28 October 2026". */
+function formatDate(dateKey: string): string {
+  const [y, m, d] = dateKey.split("-").map(Number)
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString("en-GB", {
     weekday: "long",
     day: "numeric",
     month: "long",
     year: "numeric",
     timeZone: "UTC",
   })
+}
+
+function toDetails(b: BookingRow, env: Env): Details {
+  const minutes = toMinutes(b.end_time) - toMinutes(b.start_time)
   return {
     ref: b.id.slice(0, 8).toUpperCase(),
     court: b.courts?.name ?? "Court",
-    date,
+    date: formatDate(b.booking_date),
     start: b.start_time.slice(0, 5),
     end: b.end_time.slice(0, 5),
-    price: new Intl.NumberFormat("en-GB", { style: "currency", currency: CURRENCY }).format(
-      Number(b.total_price)
-    ),
+    length: minutes % 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}m` : `${minutes / 60}h`,
     playerName: b.profiles?.full_name || "Player",
     playerPhone: b.profiles?.phone_number || "—",
     clubName: env.clubName,
@@ -169,7 +193,7 @@ function clientEmail(d: Details): string {
        ["Court", d.court],
        ["Date", d.date],
        ["Time", `${d.start} – ${d.end}`],
-       ["Total", d.price],
+       ["Length", d.length],
        ["Location", `${d.clubName}, ${d.clubAddress}`],
        ["Reference", d.ref],
      ])}
@@ -179,21 +203,23 @@ function clientEmail(d: Details): string {
   )
 }
 
-function adminEmail(d: Details, playerEmail: string): string {
+function adminBookingEmail(d: Details, playerEmail: string | null): string {
+  const rows: [string, string][] = [
+    ["Player", d.playerName],
+    ["Phone", d.playerPhone],
+    ["Court", d.court],
+    ["Date", d.date],
+    ["Time", `${d.start} – ${d.end}`],
+    ["Length", d.length],
+  ]
+  if (playerEmail) rows.push(["Email", playerEmail])
+  rows.push(["Reference", d.ref])
+
   return layout(
     d.clubName,
     `<h1 style="margin:0 0 8px;font-size:22px;">New court booking</h1>
      <p style="margin:0 0 24px;color:#52525b;">A slot has just been reserved.</p>
-     ${table([
-       ["Court", d.court],
-       ["Date", d.date],
-       ["Time", `${d.start} – ${d.end}`],
-       ["Total", d.price],
-       ["Player", d.playerName],
-       ["Email", playerEmail],
-       ["Phone", d.playerPhone],
-       ["Reference", d.ref],
-     ])}`
+     ${table(rows)}`
   )
 }
 
@@ -224,6 +250,11 @@ function table(rows: [string, string][]): string {
       )
       .join("")}
   </table>`
+}
+
+function toMinutes(time: string): number {
+  const [h, m] = time.split(":").map(Number)
+  return h * 60 + m
 }
 
 function esc(value: string): string {

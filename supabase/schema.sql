@@ -25,7 +25,6 @@ create table public.profiles (
 create table public.courts (
   id          uuid primary key default gen_random_uuid(),
   name        text not null unique,
-  hourly_rate numeric(10, 2) not null check (hourly_rate >= 0),
   is_active   boolean not null default true,
   created_at  timestamptz not null default now()
 );
@@ -37,12 +36,11 @@ create table public.bookings (
   booking_date date not null,
   start_time   time not null,
   end_time     time not null,
-  total_price  numeric(10, 2) not null default 0,
-  status       public.booking_status not null default 'confirmed',
+  status      public.booking_status not null default 'confirmed',
   created_at   timestamptz not null default now(),
 
-  constraint bookings_starts_on_the_hour
-    check (extract(minute from start_time) = 0 and extract(second from start_time) = 0),
+  constraint bookings_starts_on_the_half_hour
+    check (extract(minute from start_time) in (0, 30) and extract(second from start_time) = 0),
   constraint bookings_valid_duration
     check (end_time - start_time between interval '1 hour' and interval '2 hours'),
 
@@ -90,21 +88,17 @@ create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
 
--- Price and ownership are decided by the database, never trusted from the client.
+-- Ownership and status are decided by the database, never trusted from the client.
 create function public.prepare_booking()
 returns trigger
 language plpgsql
 security definer
 set search_path = ''
 as $$
-declare
-  rate numeric(10, 2);
 begin
-  select c.hourly_rate into rate
-  from public.courts c
-  where c.id = new.court_id and c.is_active;
-
-  if rate is null then
+  if not exists (
+    select 1 from public.courts c where c.id = new.court_id and c.is_active
+  ) then
     raise exception 'Court is not available for booking' using errcode = 'P0001';
   end if;
 
@@ -115,7 +109,6 @@ begin
   new.user_id     := auth.uid();
   new.status      := 'confirmed';
   new.created_at  := now();
-  new.total_price := round(rate * extract(epoch from (new.end_time - new.start_time)) / 3600, 2);
   return new;
 end;
 $$;
@@ -146,24 +139,27 @@ create trigger bookings_guard_update
 -- -----------------------------------------------------------------------------
 -- Availability lookup
 -- RLS hides other users' bookings, but the grid still needs to know which
--- slots are taken. This returns only court/time ranges — no user data.
+-- slots are taken and by whom. This returns court/time ranges plus the
+-- booker's name — the name only to signed-in users, never to anonymous visitors.
 -- -----------------------------------------------------------------------------
 create function public.get_booked_slots(p_date date)
-returns table (court_id uuid, start_time time, end_time time)
+returns table (court_id uuid, start_time time, end_time time, booked_by text)
 language sql
 stable
 security definer
 set search_path = ''
 as $$
-  select b.court_id, b.start_time, b.end_time
+  select b.court_id, b.start_time, b.end_time,
+         case when auth.uid() is not null then nullif(p.full_name, '') end
   from public.bookings b
+  join public.profiles p on p.id = b.user_id
   where b.booking_date = p_date
-    and b.status <> 'cancelled';
+    and b.status <> 'cancelled'
+  order by b.start_time;
 $$;
 
 revoke all on function public.get_booked_slots(date) from public;
 grant execute on function public.get_booked_slots(date) to anon, authenticated;
-
 -- -----------------------------------------------------------------------------
 -- Row Level Security (House Rule: every table)
 -- -----------------------------------------------------------------------------
@@ -180,6 +176,10 @@ create policy "Users update own profile"
   on public.profiles for update to authenticated
   using ((select auth.uid()) = id)
   with check ((select auth.uid()) = id);
+
+-- Column-level: users may edit only their own name and phone.
+revoke update on public.profiles from anon, authenticated;
+grant update (full_name, phone_number) on public.profiles to authenticated;
 
 -- courts: anyone may browse active courts; changes go through the dashboard.
 create policy "Anyone reads active courts"
@@ -205,9 +205,7 @@ revoke update on public.bookings from anon, authenticated;
 grant update (status) on public.bookings to authenticated;
 
 -- -----------------------------------------------------------------------------
--- Seed data — edit names and rates to match the club
+-- Seed data — edit names to match the club
 -- -----------------------------------------------------------------------------
-insert into public.courts (name, hourly_rate) values
-  ('Court 1 (Panoramic Indoor)', 40.00),
-  ('Court 2 (Outdoor)',          28.00),
-  ('Court 3 (Indoor)',           35.00);
+insert into public.courts (name) values
+  ('Unit 4');

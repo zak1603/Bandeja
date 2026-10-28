@@ -1,0 +1,238 @@
+/*
+ * Padel animations. Every animated class starts with "padel-", so the
+ * reduced-motion rule at the bottom can switch them all off in one place.
+ *
+ * Quadratic easings, used so separate x/y animations combine into parabolas:
+ *   rise (decelerating) cubic-bezier(.33, .66, .66, 1)
+ *   fall (accelerating) cubic-bezier(.33, 0, .66, .33)
+ */
+
+/* --- Court rally (CourtRally.tsx) ---------------------------------------- */
+/* One 3.2s loop: left hits → bounce → right glass → right hits → bounce → left glass. */
+
+.padel-rally-x,
+.padel-rally-y,
+.padel-rally-shadow,
+.padel-glass,
+.padel-dust,
+.padel-paddle {
+  animation-duration: 3.2s;
+  animation-iteration-count: infinite;
+}
+
+.padel-rally-x,
+.padel-rally-y {
+  animation-delay: var(--lag, 0s); /* ghost trail balls lag slightly behind */
+}
+
+.padel-rally-x {
+  transform: translateX(170px); /* static pose when motion is off */
+  animation-name: padel-rally-x;
+  animation-timing-function: linear;
+}
+
+.padel-rally-y {
+  transform: translateY(40px);
+  animation-name: padel-rally-y;
+}
+
+@keyframes padel-rally-x {
+  0% { transform: translateX(60px); }
+  32% { transform: translateX(300px); }
+  40% { transform: translateX(372px); }
+  50% { transform: translateX(340px); }
+  82% { transform: translateX(100px); }
+  90% { transform: translateX(28px); }
+  100% { transform: translateX(60px); }
+}
+
+@keyframes padel-rally-y {
+  0%, 50% { transform: translateY(66px); animation-timing-function: cubic-bezier(.33, .66, .66, 1); }
+  14%, 64% { transform: translateY(28px); animation-timing-function: cubic-bezier(.33, 0, .66, .33); }
+  32%, 82% { transform: translateY(100px); animation-timing-function: cubic-bezier(.33, .66, .66, 1); }
+  100% { transform: translateY(66px); }
+}
+
+.padel-rally-shadow {
+  transform-box: fill-box;
+  transform-origin: center;
+  transform: scale(.5);
+  animation-name: padel-rally-shadow;
+}
+
+@keyframes padel-rally-shadow {
+  0%, 50%, 100% { transform: scale(.75); opacity: .3; }
+  14%, 64% { transform: scale(.4); opacity: .12; }
+  32%, 82% { transform: scale(1); opacity: .45; }
+}
+
+.padel-spin {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: padel-spin .6s linear infinite;
+}
+
+@keyframes padel-spin {
+  to { transform: rotate(360deg); }
+}
+
+.padel-glass {
+  fill: white;
+  fill-opacity: .14;
+  stroke: white;
+  stroke-opacity: .55;
+}
+
+.padel-glass-left { animation-name: padel-glass-left; }
+.padel-glass-right { animation-name: padel-glass-right; }
+
+@keyframes padel-glass-right {
+  0%, 38%, 50%, 100% { fill-opacity: .14; }
+  40% { fill-opacity: .6; }
+}
+
+@keyframes padel-glass-left {
+  0%, 88%, 100% { fill-opacity: .14; }
+  90% { fill-opacity: .6; }
+}
+
+.padel-dust {
+  fill: none;
+  stroke: white;
+  stroke-width: 1.2;
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation-timing-function: linear;
+}
+
+.padel-dust-right { animation-name: padel-dust-right; }
+.padel-dust-left { animation-name: padel-dust-left; }
+
+@keyframes padel-dust-right {
+  0%, 31.9% { opacity: 0; transform: scale(.3); }
+  32% { opacity: .9; transform: scale(.3); }
+  42%, 100% { opacity: 0; transform: scale(1.6); }
+}
+
+@keyframes padel-dust-left {
+  0%, 81.9% { opacity: 0; transform: scale(.3); }
+  82% { opacity: .9; transform: scale(.3); }
+  92%, 100% { opacity: 0; transform: scale(1.6); }
+}
+
+.padel-paddle { animation-timing-function: ease-in-out; }
+.padel-paddle-left { animation-name: padel-swing-left; }
+.padel-paddle-right { animation-name: padel-swing-right; }
+
+/* Wind up, strike as the ball arrives, follow through, settle. */
+@keyframes padel-swing-left {
+  0% { transform: rotate(10deg); }
+  10% { transform: rotate(26deg); }
+  24%, 84% { transform: rotate(0deg); }
+  96% { transform: rotate(-38deg); }
+  100% { transform: rotate(10deg); }
+}
+
+@keyframes padel-swing-right {
+  0%, 34% { transform: rotate(0deg); }
+  46% { transform: rotate(38deg); }
+  50% { transform: rotate(-10deg); }
+  60% { transform: rotate(-26deg); }
+  74%, 100% { transform: rotate(0deg); }
+}
+
+/* --- Loader & small touches (PadelBall.tsx, SlotGrid, header) ------------ */
+
+.padel-loader-ball {
+  transform-origin: bottom center;
+  animation: padel-loader-ball .7s infinite;
+}
+
+@keyframes padel-loader-ball {
+  0%, 100% { transform: translateY(0); animation-timing-function: cubic-bezier(.33, 0, .66, .33); }
+  45% { transform: translateY(13px); animation-timing-function: linear; }
+  50% { transform: translateY(14px) scale(1.2, .8); animation-timing-function: linear; }
+  55% { transform: translateY(13px); animation-timing-function: cubic-bezier(.33, .66, .66, 1); }
+}
+
+.padel-loader-shadow { animation: padel-loader-shadow .7s infinite; }
+
+@keyframes padel-loader-shadow {
+  0%, 100% { transform: scaleX(.5); opacity: .25; }
+  50% { transform: scaleX(1); opacity: .6; }
+}
+
+.padel-bob { animation: padel-bob 2.8s ease-in-out infinite; }
+
+@keyframes padel-bob {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-3px) rotate(12deg); }
+}
+
+.padel-pop { animation: padel-pop .3s ease-out; }
+
+@keyframes padel-pop {
+  0% { transform: scale(.88); }
+  60% { transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
+
+/* --- Booking celebration (BookingCelebration.tsx) ------------------------ */
+/* 2.4s: smash in from the corner → squash on impact → bounce → rings → fade. */
+
+.padel-celebrate-backdrop { animation: padel-celebrate-fade 2.4s ease both; }
+
+@keyframes padel-celebrate-fade {
+  0% { opacity: 0; }
+  12%, 85% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.padel-celebrate-ball {
+  transform-origin: bottom center;
+  animation: padel-smash 2.4s cubic-bezier(.2, .7, .3, 1) both;
+}
+
+@keyframes padel-smash {
+  0% { transform: translate(-45vw, -55vh) scale(.4) rotate(-220deg); opacity: 0; }
+  10% { opacity: 1; }
+  38% { transform: translate(0, 0) scale(1.15, .8) rotate(0deg); }
+  48% { transform: translate(0, -22px) scale(.95, 1.05); }
+  58% { transform: translate(0, 0) scale(1.05, .95); }
+  66%, 85% { transform: translate(0, 0) scale(1); opacity: 1; }
+  100% { transform: translate(0, 0) scale(.6); opacity: 0; }
+}
+
+.padel-celebrate-ring {
+  opacity: 0;
+  animation: padel-ring 2.4s ease-out both;
+}
+
+@keyframes padel-ring {
+  0%, 36% { transform: scale(.6); opacity: 0; }
+  40% { transform: scale(.8); opacity: .9; }
+  70%, 100% { transform: scale(2.6); opacity: 0; }
+}
+
+.padel-celebrate-text { animation: padel-celebrate-text 2.4s ease-out both; }
+
+@keyframes padel-celebrate-text {
+  0%, 40% { opacity: 0; transform: translateY(12px) scale(.9); }
+  52% { opacity: 1; transform: translateY(0) scale(1.04); }
+  58%, 85% { opacity: 1; transform: none; }
+  100% { opacity: 0; transform: none; }
+}
+
+/* --- Accessibility -------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  [class*="padel-"],
+  [class*="padel-"] * {
+    animation: none !important;
+  }
+
+  .padel-ghost {
+    display: none;
+  }
+}

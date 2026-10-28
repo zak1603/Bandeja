@@ -7,3 +7,12 @@ export function describeBookingError(error: { code?: string; message: string }):
   // Everything else, including messages raised by our triggers (P0001).
   return error.message
 }
+
+/** Errors from loading courts/availability. */
+export function describeLoadError(error: { code?: string; message: string }): string {
+  // PGRST205 = table not found, PGRST202 = function not found: schema.sql hasn't been run.
+  if (error.code === "PGRST205" || error.code === "PGRST202") {
+    return "The database isn't set up yet. Run supabase/schema.sql in the Supabase SQL Editor."
+  }
+  return error.message
+}

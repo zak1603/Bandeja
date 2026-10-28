@@ -9,8 +9,7 @@ export interface UserProfile {
 
 export interface Court {
   id: string
-  name: string // e.g., "Court 1 (Indoor)"
-  hourly_rate: number
+  name: string // e.g., "Unit 4"
   is_active: boolean
 }
 
@@ -21,7 +20,6 @@ export interface Booking {
   booking_date: string // YYYY-MM-DD
   start_time: string // HH:MM
   end_time: string // HH:MM
-  total_price: number
   status: BookingStatus
   created_at: string
 }
@@ -36,4 +34,5 @@ export interface BookedSlot {
   court_id: string
   start_time: string
   end_time: string
+  booked_by: string | null // null for signed-out visitors
 }
